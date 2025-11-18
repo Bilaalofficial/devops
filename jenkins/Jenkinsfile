@@ -1,0 +1,68 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION     = "ap-south-1"
+        ECR_ACCOUNT_ID = "YOUR_AWS_ACCOUNT_ID"
+        ECR_REPO       = "devops-eks-node-app"
+        IMAGE_TAG      = "v${env.BUILD_NUMBER}"
+        ECR_URL        = "${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        K8S_NAMESPACE  = "default"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/youruser/devops-eks-nodejs-project.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'docker build -t $ECR_URL:$IMAGE_TAG -f docker/Dockerfile .'
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                sh '''
+                aws ecr get-login-password --region $AWS_REGION \
+                  | docker login --username AWS --password-stdin ${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                '''
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh 'docker push $ECR_URL:$IMAGE_TAG'
+            }
+        }
+
+        stage('Apply Terraform (Infra)') {
+            steps {
+                dir('terraform') {
+                    sh """
+                    terraform init
+                    terraform apply -auto-approve \
+                      -var aws_region=$AWS_REGION \
+                      -var ecr_repo=$ECR_REPO
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-eks', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                    export KUBECONFIG=$KUBECONFIG_FILE
+
+                    sed -e "s|IMAGE_PLACEHOLDER|$ECR_URL:$IMAGE_TAG|g" k8s/deployment.yaml | kubectl apply -f -
+                    kubectl apply -f k8s/service.yaml
+                    kubectl apply -f k8s/ingress.yaml
+                    '''
+                }
+            }
+        }
+    }
+}
