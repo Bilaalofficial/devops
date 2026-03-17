@@ -13,4 +13,4 @@ jobs:
           stale-branch-message: "This branch is stale and will be deleted in 7 days."
           days-before-stale: 60
           days-before-close: 7
-          exempt-branches: main,develop,prod,qa
+          exempt-branches: main,develop,prod,qa,dev
