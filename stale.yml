@@ -1,0 +1,16 @@
+name: Mark Stale Branches
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          stale-branch-message: "This branch is stale and will be deleted in 7 days."
+          days-before-stale: 60
+          days-before-close: 7
+          exempt-branches: main,develop,prod
