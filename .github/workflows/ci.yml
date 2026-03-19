@@ -1,19 +1,70 @@
-name: Branches Cleaner
+name: Stale Branch Cleanup
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 * * 0"   # Weekly (Sunday)
   workflow_dispatch:
 
+permissions:
+  contents: write   # REQUIRED for deleting branches
+
 jobs:
-  cleanup-branches:
+  cleanup:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: GitHub Branch Cleaner
-        uses: mmorenoregalado/action-branches-cleaner@v2.0.3
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Delete Stale Branches
+        uses: actions/github-script@v7
         with:
-          base_branches: main,master,demo1
-          token: ${{ secrets.GITHUB_TOKEN }}
-          days_old_threshold: 2
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const excludedBranches = ["main", "prod", "demo1"];
+            const excludedPatterns = [/^release\//];
+
+            const days = 2; // change to 90 for production
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - days);
+
+            const branches = await github.paginate(
+              github.rest.repos.listBranches,
+              { owner, repo }
+            );
+
+            for (const branch of branches) {
+              const name = branch.name;
+
+              // Skip protected branches
+              if (branch.protected) {
+                console.log(`Skipping protected branch: ${name}`);
+                continue;
+              }
+
+              // Skip excluded branches
+              if (excludedBranches.includes(name)) continue;
+              if (excludedPatterns.some(pattern => pattern.test(name))) continue;
+
+              const commit = await github.rest.repos.getCommit({
+                owner,
+                repo,
+                ref: name
+              });
+
+              const lastCommitDate = new Date(commit.data.commit.committer.date);
+
+              if (lastCommitDate < cutoff) {
+                console.log(`Deleting stale branch: ${name}`);
+
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${name}`
+                });
+              } else {
+                console.log(`Active branch: ${name}`);
+              }
+            }
